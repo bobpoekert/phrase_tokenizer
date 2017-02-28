@@ -87,12 +87,12 @@ int main(int argc, char **argv) {
     }
 
    
-    base_mat = mmap(0, base_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, base_fd, 0);
+    base_mat = mmap(0, base_size, PROT_READ | PROT_WRITE, MAP_SHARED, base_fd, 0);
     if (base_mat == MAP_FAILED) {
         printf("failed to load base file\n");
         return 1;
     }
-    token_mat = mmap(0, token_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, token_fd, 0);
+    token_mat = mmap(0, token_size, PROT_READ | PROT_WRITE, MAP_SHARED, token_fd, 0);
     if (token_mat == MAP_FAILED) {
         printf("failed to load token file\n");
         return 1;
@@ -102,6 +102,12 @@ int main(int argc, char **argv) {
     base_sketch = pt_CountMinSketch_alloc(base_width, base_height, base_mat);
 
     pt_CountMinSketch_readFileLines(token_sketch, base_sketch, STDIN_FILENO);
+
+    msync(base_mat, base_size, MS_SYNC);
+    munmap(base_mat, base_size);
+    
+    msync(token_mat, token_size, MS_SYNC);
+    munmap(token_mat, token_size);
 
     return 0;
 
