@@ -6,9 +6,17 @@
 #include <stddef.h>
 #include <unistd.h>
 
-int main(int argc, char **argv) {
+void touch(char *path) {
+    int fd2 = open(path, O_RDWR|O_CREAT, 0777);  // Originally 777 (see comments)
 
-    if (argc != 6) {
+    if (fd2 != -1) {
+        // use file descriptor
+        close(fd2);
+    }
+}
+
+int main(int argc, char **argv) {
+    if (argc != 7) {
         printf("usage: %s <base sektch> <base width> <base height> <token sketch> <token width> <token height>\n", argv[0]);
         return 1;
     }
@@ -48,18 +56,20 @@ int main(int argc, char **argv) {
         printf("invalid token width\n");
         return 1;
     }
-    token_width = strtol(argv[6], NULL, 10);
+    token_height = strtol(argv[6], NULL, 10);
     if (token_height == 0) {
-        printf("invalid token height\n");
+        printf("invalid token height: %s\n", argv[6]);
         return 1;
     }
 
     token_size = token_width * token_height * sizeof(uint32_t);
-    
+   
+    touch(argv[1]);
     if (truncate(argv[1], base_size) != 0) {
-        printf("failed to resize base file\n'");
+        printf("failed to resize base file\n");
         return 1;
     }
+    touch(argv[4]);
     if (truncate(argv[4], token_size) != 0) {
         printf("failed to resize token file\n'");
         return 1;

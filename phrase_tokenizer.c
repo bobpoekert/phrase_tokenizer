@@ -27,6 +27,7 @@ pt_CountMinSketch *pt_CountMinSketch_alloc(size_t width, size_t height, uint32_t
     res->width = width;
     res->height = height;
     res->primes = hash_primes;
+    res->mat = mat;
 
     return res;
 
