@@ -90,8 +90,9 @@ void pt_CountMinSketch_addAllSubstrings(pt_CountMinSketch *sketch, char *charact
     pt_HashState hash_state = pt_HashState_new();
     for (size_t start=0; start < length-1; start++) {
         pt_HashState_reset(&hash_state);
-        for (size_t i=start; i < length; i++) {
-            uint32_t hash_value = pt_HashState_crank(&hash_state, characters[i]);
+        size_t i;
+        while (i < length) {
+            uint32_t hash_value = pt_HashState_crankCharacter(&hash_state, characters, &i, length);
             pt_CountMinSketch_addHashValue(sketch, hash_value);
         }
     }
@@ -140,7 +141,7 @@ void pt_CountMinSketch_readFileLines(pt_CountMinSketch *token_sketch, pt_CountMi
 
    char read_buffer[READ_BUFFER_SIZE];
    char line_buffer[LINE_BUFFER_SIZE];
-   size_t line_size;
+   size_t line_size = 0;
    pt_HashState hash_state = pt_HashState_new();
    size_t bytes_read = 0;
    size_t row_count = 0;
@@ -153,15 +154,15 @@ void pt_CountMinSketch_readFileLines(pt_CountMinSketch *token_sketch, pt_CountMi
                 pt_CountMinSketch_addString(token_sketch, line_buffer, line_size);
                 line_size = 0;
                 row_count++;
-                if (row_count % 1000 == 0) {
+                if (row_count % 10000 == 0) {
                     printf("%lu\n", row_count);
                 }
             } else {
-                line_buffer[line_size] = read_buffer[i];
-                line_size++;
                 if (line_size >= LINE_BUFFER_SIZE) {
                     line_size = 0;
                 }
+                line_buffer[line_size] = read_buffer[i];
+                line_size++;
             }
         }
 
