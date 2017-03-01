@@ -1,2 +1,4 @@
 *.dSYM
 *.sketch
+build/
+*.pyc

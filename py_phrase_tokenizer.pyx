@@ -34,9 +34,10 @@ cdef class PhraseTokenizer:
     def __cinit__(self, sketch_file, width, height):
         self.sketch_fd = sketch_file.fileno()
         self.sketch_size = sketch_file_size(width, height)
+        print self.sketch_size / sizeof(uint32_t)
         self.mat = <uint32_t *> load(self.sketch_fd, self.sketch_size)
         if <int>self.mat == 0:
-            raise IOError('failed to mmap file')
+            raise IOError('failed to mmap file. are you sure the file has read and write permissions?')
         self.token_sketch = pt_CountMinSketch_alloc(width, height, self.mat)
 
     def chunk(self, text):
