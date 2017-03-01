@@ -2,3 +2,4 @@
 *.sketch
 build/
 *.pyc
+py_phrase_tokenizer.c

@@ -1,5 +1,8 @@
 from libc.stdint cimport *
 from libc.stdlib cimport malloc, free
+import numpy as np
+cimport numpy as np
+import os
 
 cdef extern from "phrase_tokenizer.c":
     struct pt_CountMinSketch:
@@ -31,14 +34,20 @@ cdef class PhraseTokenizer:
     cdef size_t sketch_size
     cdef uint32_t *mat
 
-    def __cinit__(self, sketch_file, width, height):
+    def __cinit__(self, sketch_file, height):
         self.sketch_fd = sketch_file.fileno()
-        self.sketch_size = sketch_file_size(width, height)
-        print self.sketch_size / sizeof(uint32_t)
+        stat = os.fstat(self.sketch_fd)
+        file_size = stat.st_size
+        width = file_size / (height * sizeof(uint32_t))
+        self.sketch_size = file_size
         self.mat = <uint32_t *> load(self.sketch_fd, self.sketch_size)
         if <int>self.mat == 0:
-            raise IOError('failed to mmap file. are you sure the file has read and write permissions?')
+            raise IOError('failed to mmap file')
         self.token_sketch = pt_CountMinSketch_alloc(width, height, self.mat)
+
+    def toarray(self):
+        cdef np.uint32_t[:, :] view = <np.uint32_t[:self.token_sketch.width, :self.token_sketch.height]> self.mat
+        return np.asarray(view)
 
     def chunk(self, text):
         unicode_text = text.encode('utf-8')

@@ -4,7 +4,7 @@
 #include <fcntl.h>
 
 char *load(int fd, size_t size) {
-    char *res = mmap(0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    char *res = mmap(0, size, PROT_READ, MAP_SHARED, fd, 0);
     if (res == MAP_FAILED) {
         return 0;
     } else {

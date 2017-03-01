@@ -77,8 +77,9 @@ uint32_t pt_CountMinSketch_lookupHash(pt_CountMinSketch *sketch, uint32_t value)
         uint64_t prime = sketch->primes[i];
         uint64_t offset = (value ^ prime) % sketch->width;
         size_t index = (sketch->width * i) + offset;
-        printf("%lu %p %d\n", index, sketch->mat, sketch->width*sketch->height-index);
-        uint32_t sketch_value = *(sketch->mat + index*sizeof(uint32_t));
+        uint32_t sketch_value;
+        sketch_value = sketch->mat[0];
+        sketch_value = sketch->mat[index];
         if (sketch_value < min_value) {
             min_value = sketch_value;
         }

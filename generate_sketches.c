@@ -16,7 +16,7 @@ void touch(char *path) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 7) {
+    if (argc != 4) {
         printf("usage: %s <token sketch> <token width> <token height>\n", argv[0]);
         return 1;
     }
