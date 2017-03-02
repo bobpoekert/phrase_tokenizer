@@ -106,7 +106,7 @@ uint32_t pt_CountMinSketch_lookupHash(pt_CountMinSketch *sketch, uint32_t value)
 
 uint64_t pt_substringScore(pt_CountMinSketch *sketch, char *string, size_t size) {
     uint32_t hash_value = pt_hash(string, size);
-    uint32_t token_count = pt_CountMinSketch_lookupHash(token_sketch, hash_value);
+    uint32_t token_count = pt_CountMinSketch_lookupHash(sketch, hash_value);
     return token_count * (size * size * size * size * size * size * size * size * size);
 }
 
@@ -124,13 +124,13 @@ size_t pt_candidateSplitPoints(
     uint64_t *candidate_scores = alloca(outp_buffer_size * sizeof(uint64_t));
 
     while (string_length < data_size && outp_offset < outp_buffer_size) {
-        uint64_t score = pt_substringScore(sketch, string_length);
-        if (score > 0) {
-            scores[outp_offset] = score;
-            split_points[outp_offset] = string_offset;
+        uint64_t score = pt_substringScore(sketch, data, string_length);
+        if (score > 5) {
+            candidate_scores[outp_offset] = score;
+            split_points[outp_offset] = string_length;
             outp_offset++;
         }
-        string_offset += pt_UTF8CharacterLength(data, string_offset, data_size);
+        string_length += pt_UTF8CharacterLength(data, string_length, data_size);
     }
 
     if (outp_offset > 0) {
@@ -138,12 +138,10 @@ size_t pt_candidateSplitPoints(
         size_t res_size = data_size - split_points[0];
         size_t *splits_buffer = alloca(res_size * sizeof(size_t));
         size_t *max_splits_buffer = alloca((res_size + 1) * sizeof(size_t));
-        uint64_t *scores_buffer = alloca(res_size * sizeof(uint64_t));
         size_t max_buffer_size = 0;
         uint64_t max_score = 0;
 
         for (size_t i=0; i < outp_offset; i++) {
-            uint64_t left_score = scores[i];
             size_t split_point = split_points[i];
             size_t res_splits_count;
             uint64_t total_score;
@@ -196,7 +194,7 @@ size_t pt_chunkText(
     result_len = pt_candidateSplitPoints(
             token_sketch,
             characters,
-            legnth,
+            length,
             result_target,
             &res_score,
             length);
