@@ -8,6 +8,9 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <ctype.h>
+#include <alloca.h>
+#include <string.h>
 
 pt_CountMinSketch *pt_CountMinSketch_alloc(size_t width, size_t height, uint32_t *mat) {
 
@@ -91,6 +94,94 @@ uint32_t pt_CountMinSketch_lookupHash(pt_CountMinSketch *sketch, uint32_t value)
     return min_value;
 }
 
+/*
+ *
+ * takes: char *buffer, size_t length, uint64_t *score_buffer, size_t score_buffer_size, 
+ *
+ * 1. generate candidate split points
+ * 2. for each candidate split point, recur on the right side of the split and get the best partitioning
+ * 3. choose the partitioning with the highest total score
+ * 4. return that partitioning
+ */
+
+uint64_t pt_substringScore(pt_CountMinSketch *sketch, char *string, size_t size) {
+    uint32_t hash_value = pt_hash(string, size);
+    uint32_t token_count = pt_CountMinSketch_lookupHash(token_sketch, hash_value);
+    return token_count * (size * size * size * size * size * size * size * size * size);
+}
+
+
+size_t pt_candidateSplitPoints(
+        pt_CountMinSketch *sketch,
+        char *data,
+        size_t data_size,
+        size_t *split_points,
+        uint64_t *score,
+        size_t outp_buffer_size) {
+
+    size_t outp_offset = 0;
+    size_t string_length = 0;
+    uint64_t *candidate_scores = alloca(outp_buffer_size * sizeof(uint64_t));
+
+    while (string_length < data_size && outp_offset < outp_buffer_size) {
+        uint64_t score = pt_substringScore(sketch, string_length);
+        if (score > 0) {
+            scores[outp_offset] = score;
+            split_points[outp_offset] = string_offset;
+            outp_offset++;
+        }
+        string_offset += pt_UTF8CharacterLength(data, string_offset, data_size);
+    }
+
+    if (outp_offset > 0) {
+
+        size_t res_size = data_size - split_points[0];
+        size_t *splits_buffer = alloca(res_size * sizeof(size_t));
+        size_t *max_splits_buffer = alloca((res_size + 1) * sizeof(size_t));
+        uint64_t *scores_buffer = alloca(res_size * sizeof(uint64_t));
+        size_t max_buffer_size = 0;
+        uint64_t max_score = 0;
+
+        for (size_t i=0; i < outp_offset; i++) {
+            uint64_t left_score = scores[i];
+            size_t split_point = split_points[i];
+            size_t res_splits_count;
+            uint64_t total_score;
+
+            res_splits_count = pt_candidateSplitPoints(
+                    sketch,
+                    (data + split_point),
+                    (data_size - split_point),
+                    splits_buffer,
+                    &total_score,
+                    res_size);
+
+            if (res_splits_count > 0 && total_score > max_score) {
+                max_score = total_score;
+                max_buffer_size = res_splits_count;
+                max_splits_buffer[0] = split_point;
+                memcpy(splits_buffer, max_splits_buffer + sizeof(size_t), res_splits_count);
+            }
+
+        }
+
+        if (max_score > 0) {
+
+            *score = max_score;
+            memcpy(max_splits_buffer, split_points, max_buffer_size);
+            return max_buffer_size;
+
+        } else {
+            return 0;
+        }
+
+    } else {
+
+        return 0;
+    
+    }
+
+}
 
 size_t pt_chunkText(
         pt_CountMinSketch *token_sketch,
@@ -100,30 +191,16 @@ size_t pt_chunkText(
 
     size_t result_len = 0;
     size_t start = 0;
+    uint64_t res_score;
 
-    while (start < length)  {
-        size_t idx = start;
-        uint32_t best_score = 0;
-        size_t best_idx = idx;
-        while (idx < length) {
-            size_t char_length = pt_UTF8CharacterLength(characters, idx, length);
-            idx += char_length;
-            uint32_t hash_value = pt_hash((characters + start), (idx - start));
-            uint32_t token_count = pt_CountMinSketch_lookupHash(token_sketch, hash_value);
-            size_t size = idx - start;
-            uint64_t score = token_count * (size * size);
-            if (score > best_score) {
-                best_score = score;
-                best_idx = idx;
-            }
-        }
+    result_len = pt_candidateSplitPoints(
+            token_sketch,
+            characters,
+            legnth,
+            result_target,
+            &res_score,
+            length);
 
-        if (best_score > 0) {
-            result_target[result_len] = best_idx;
-            result_len++;
-        }
-        start = best_idx + 1;
-    }
 
     return result_len;
 }
@@ -163,7 +240,7 @@ void pt_CountMinSketch_readFileLines(pt_CountMinSketch *token_sketch, int fd) {
                 if (line_size >= LINE_BUFFER_SIZE) {
                     line_size = 0;
                 }
-                line_buffer[line_size] = read_buffer[i];
+                line_buffer[line_size] = (char) tolower(read_buffer[i]);
                 line_size++;
             }
         }

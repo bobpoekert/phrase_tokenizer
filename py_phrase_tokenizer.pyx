@@ -57,7 +57,7 @@ cdef class PhraseTokenizer:
         return np.copy(np.asarray(view))
 
     def __getitem__(self, k):
-        unicode_text = k.encode('utf-8')
+        unicode_text = k.lower().encode('utf-8')
         cdef char *raw_text = unicode_text
         cdef uint32_t token_count
         cdef uint32_t hash_value
@@ -68,7 +68,7 @@ cdef class PhraseTokenizer:
         return token_count
 
     def chunk(self, text):
-        unicode_text = text.encode('utf-8')
+        unicode_text = text.lower().encode('utf-8')
         cdef char *raw_text = unicode_text
         cdef size_t text_size = len(raw_text)
         cdef size_t *splits = <size_t *> alloca(text_size * sizeof(size_t))
@@ -81,7 +81,7 @@ cdef class PhraseTokenizer:
             res = []
             for i in xrange(split_size):
                 idx = splits[i]
-                res.append(unicode_text[prev_idx:idx])
+                res.append(text[prev_idx:idx])
                 prev_idx = idx
             res.append(unicode_text[prev_idx:])
             return res
