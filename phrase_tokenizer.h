@@ -2,12 +2,12 @@
 
 #include <stdint.h>
 #include <stddef.h>
+#include "primes.h"
 
 typedef struct pt_CountMinSketch {
 
     size_t width;
     size_t height;
-    uint32_t *primes;
     uint32_t *mat;
 
 } pt_CountMinSketch;

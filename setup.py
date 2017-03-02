@@ -10,6 +10,6 @@ setup(
                 'phrase_tokenizer',
                 sources=['py_phrase_tokenizer.pyx'],
                 include_dirs=[numpy.get_include()],
-                extra_compile_args=['-g', '-O0'])
+                extra_compile_args=['-g', '-Ofast'])
             ],
         cmdclass={'build_ext':build_ext})

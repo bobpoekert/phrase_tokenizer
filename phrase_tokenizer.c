@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <limits.h>
 
 pt_CountMinSketch *pt_CountMinSketch_alloc(size_t width, size_t height, uint32_t *mat) {
 
@@ -14,19 +15,13 @@ pt_CountMinSketch *pt_CountMinSketch_alloc(size_t width, size_t height, uint32_t
         return 0;
     }
 
-    void *buffer = malloc(sizeof(pt_CountMinSketch) + sizeof(uint32_t) * height);
+    void *buffer = malloc(sizeof(pt_CountMinSketch));
 
     pt_CountMinSketch *res = (pt_CountMinSketch *) buffer;
-    uint32_t *hash_primes = (uint32_t *) (buffer + sizeof(pt_CountMinSketch));
 
-
-    for (int i=0; i < height; i++) {
-        hash_primes[i] = pt_primes[i];
-    }
 
     res->width = width;
     res->height = height;
-    res->primes = hash_primes;
     res->mat = mat;
 
     return res;
@@ -45,21 +40,26 @@ void pt_CountMinSketch_addHashValue(pt_CountMinSketch *sketch, uint32_t value) {
      * http://blog.demofox.org/2015/02/22/count-min-sketch-a-probabilistic-histogram/
      * */
 
-    uint32_t min_value = -1;
-    size_t min_index = -1;
+    uint32_t min_value = INT_MAX;
+    size_t min_index = INT_MAX;
+    uint32_t *mat = sketch->mat;
+    size_t max_row_idx = sketch->width - 1;
+    size_t base_idx = 0;
 
     for (size_t i=0; i < sketch->height; i++) {
-        uint64_t prime = sketch->primes[i];
-        uint64_t offset = (value ^ prime) % sketch->width;
-        size_t index = (sketch->width * i) + offset;
-        uint32_t sketch_value = sketch->mat[index];
+        uint32_t prime = pt_primes[i];
+        uint64_t offset = (value ^ prime) % max_row_idx;
+        size_t index = base_idx + offset;
+        uint32_t sketch_value;
+        sketch_value = mat[index];
         if (sketch_value < min_value) {
             min_value = sketch_value;
             min_index = index;
         }
+        base_idx += max_row_idx;
     }
 
-    if (min_index != -1) {
+    if (min_index != INT_MAX) {
         sketch->mat[min_index]++;
     }
 
@@ -71,18 +71,21 @@ void pt_CountMinSketch_addString(pt_CountMinSketch *sketch, char *string, size_t
 }
 
 uint32_t pt_CountMinSketch_lookupHash(pt_CountMinSketch *sketch, uint32_t value) {
-    uint32_t min_value = -1;
+    uint32_t min_value = INT_MAX;
+    uint32_t *mat = sketch->mat;
+    size_t max_row_idx = sketch->width - 1;
+    size_t base_idx = 0;
 
     for (size_t i=0; i < sketch->height; i++) {
-        uint64_t prime = sketch->primes[i];
-        uint64_t offset = (value ^ prime) % sketch->width;
-        size_t index = (sketch->width * i) + offset;
+        uint32_t prime = pt_primes[i];
+        uint64_t offset = (value ^ prime) % max_row_idx;
+        size_t index = base_idx + offset;
         uint32_t sketch_value;
-        sketch_value = sketch->mat[0];
-        sketch_value = sketch->mat[index];
+        sketch_value = mat[index];
         if (sketch_value < min_value) {
             min_value = sketch_value;
         }
+        base_idx += max_row_idx;
     }
 
     return min_value;
@@ -101,22 +104,25 @@ size_t pt_chunkText(
     while (start < length)  {
         size_t idx = start;
         uint32_t best_score = 0;
-        size_t best_idx = 0;
+        size_t best_idx = idx;
         while (idx < length) {
             size_t char_length = pt_UTF8CharacterLength(characters, idx, length);
             idx += char_length;
             uint32_t hash_value = pt_hash((characters + start), (idx - start));
             uint32_t token_count = pt_CountMinSketch_lookupHash(token_sketch, hash_value);
-            uint64_t score = token_count * (idx - start);
+            size_t size = idx - start;
+            uint64_t score = token_count * (size * size);
             if (score > best_score) {
                 best_score = score;
                 best_idx = idx;
             }
         }
 
-        result_target[result_len] = best_idx;
-        result_len++;
-        start = best_idx;
+        if (best_score > 0) {
+            result_target[result_len] = best_idx;
+            result_len++;
+        }
+        start = best_idx + 1;
     }
 
     return result_len;
@@ -125,6 +131,8 @@ size_t pt_chunkText(
 
 #define READ_BUFFER_SIZE (1024 * 1024)
 #define LINE_BUFFER_SIZE (1024 * 1024)
+
+#define isWhitespace(v) (v == ' ' || v == '\t')
 
 void pt_CountMinSketch_readFileLines(pt_CountMinSketch *token_sketch, int fd) {
 
@@ -138,7 +146,13 @@ void pt_CountMinSketch_readFileLines(pt_CountMinSketch *token_sketch, int fd) {
    while((bytes_read = read(fd, (void *) read_buffer, (int) READ_BUFFER_SIZE)) > 0) {
 
         for (size_t i=0; i < bytes_read; i++) {
-            if (read_buffer[i] == '\n') {
+            if (
+                    (read_buffer[i] == '\n') ||
+                    (i < bytes_read-1 && isWhitespace(read_buffer[i+1]) && read_buffer[i] == '.') ||
+                    (i < bytes_read-1 && isWhitespace(read_buffer[i+1]) && read_buffer[i] == ';') ||
+                    (i < bytes_read-1 && isWhitespace(read_buffer[i+1]) && read_buffer[i] == '!') ||
+                    (i < bytes_read-1 && isWhitespace(read_buffer[i+1]) && read_buffer[i] == '?')
+                    ) {
                 pt_CountMinSketch_addString(token_sketch, line_buffer, line_size);
                 line_size = 0;
                 row_count++;

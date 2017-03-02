@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdint.h>
 /*
                          The First 10,000 Primes
