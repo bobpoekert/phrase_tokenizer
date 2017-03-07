@@ -12,7 +12,6 @@ cdef extern from "phrase_tokenizer.c":
         size_t height
         uint32_t *mat
 
-
     pt_CountMinSketch *pt_CountMinSketch_alloc(size_t width, size_t height, uint32_t *mat)
     void pt_CountMinSketch_free(pt_CountMinSketch *inp)
     void pt_CountMinSketch_addHashValue(pt_CountMinSketch *sketch, uint32_t value)
@@ -34,12 +33,63 @@ cdef extern from "map_file.c":
 cdef extern from "alloca.h":
     void *alloca(size_t size)
 
+def splits(text, L=30):
+    "Return a list of all possible (first, rem) pairs, len(first)<=L."
+    return [(text[:i+1], text[i+1:])
+               for i in range(min(len(text), L))]
+
+class Segment(object):
+
+    def __init__(self, tokenizer):
+        self.cache = {}
+        self.tokenizer = tokenizer
+
+    def segment(self, text, recursion_depth):
+        "Return a list of words that is the best segmentation of text."
+        cdef double max_score
+        cdef object max_split
+        if not text:
+            return ([], None)
+        try:
+            return self.cache[text]
+        except KeyError:
+            max_score = 0
+            max_split = None
+            if recursion_depth > 100:
+                for i in xrange(min(len(text), 30)):
+                    left = text[:i+1]
+                    right = text[i+1:]
+                    score = self.tokenizer.Pr(left) * self.tokenizer.Pr(right)
+                    if max_split is None or score > max_score:
+                        max_score = score
+                        max_split = [left, right]
+            else:
+                for i in xrange(min(len(text), 30)):
+                    left = text[:i+1]
+                    right = text[i+1:]
+                    right_chunk, right_score = self.segment(right, recursion_depth+1)
+                    if right_score is None:
+                        score = self.tokenizer.Pr(left)
+                        if max_split is None or score > max_score:
+                            max_score = score
+                            max_split = [left]
+                    else:
+                        score = self.tokenizer.Pr(left) * right_score
+                        if max_split is None or score > max_score:
+                            max_score = score
+                            max_split = [left] + right_chunk
+
+            res = (max_split, max_score)
+            self.cache[text] = res
+            return res
+
 cdef class PhraseTokenizer:
 
     cdef pt_CountMinSketch *token_sketch
     cdef int sketch_fd
     cdef size_t sketch_size
     cdef uint32_t *mat
+    cdef double total
 
     def __cinit__(self, sketch_file, height):
         self.sketch_fd = sketch_file.fileno()
@@ -51,6 +101,8 @@ cdef class PhraseTokenizer:
         if <int>self.mat == 0:
             raise IOError('failed to mmap file')
         self.token_sketch = pt_CountMinSketch_alloc(width, height, self.mat)
+        arr = self.toarray()
+        self.total = min([np.sum(arr[:, k]) for k in xrange(height)])
 
     def toarray(self):
         cdef np.uint32_t[:, :] view = <np.uint32_t[:self.token_sketch.width, :self.token_sketch.height]> self.mat
@@ -67,24 +119,17 @@ cdef class PhraseTokenizer:
 
         return token_count
 
+    def Pr(self, k):
+        return self[k] / self.total
+
+    def Pwords(self, words):
+        res = 1
+        for word in words:
+            res = res * self.Pr(word)
+        return res
+
     def chunk(self, text):
-        unicode_text = text.lower().encode('utf-8')
-        cdef char *raw_text = unicode_text
-        cdef size_t text_size = len(raw_text)
-        cdef size_t *splits = <size_t *> alloca(text_size * sizeof(size_t))
-        cdef size_t split_size
-        split_size = pt_chunkText(self.token_sketch, raw_text, text_size, splits)
-        if split_size == 0:
-            return [text]
-        else:
-            prev_idx = 0
-            res = []
-            for i in xrange(split_size):
-                idx = splits[i]
-                res.append(text[prev_idx:idx])
-                prev_idx = idx
-            res.append(unicode_text[prev_idx:])
-            return res
+        return Segment(self).segment(text, 0)[0]
 
     def __dealloc__(self):
         unload(<char *>self.mat, self.sketch_size)
