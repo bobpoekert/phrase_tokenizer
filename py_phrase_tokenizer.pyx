@@ -54,7 +54,7 @@ cdef class PhraseTokenizer:
 
     def toarray(self):
         cdef np.uint32_t[:, :] view = <np.uint32_t[:self.token_sketch.width, :self.token_sketch.height]> self.mat
-        return np.copy(np.asarray(view))
+        return np.asarray(view)
 
     def __getitem__(self, k):
         unicode_text = k.lower().encode('utf-8')

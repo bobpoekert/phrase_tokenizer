@@ -12,13 +12,22 @@
 #include <alloca.h>
 #include <string.h>
 
+void *alloc(size_t s) {
+    void *res = malloc(s);
+    if (res == 0) {
+        return 0;
+    }
+    memset(res, 0, s);
+    return res;
+}
+
 pt_CountMinSketch *pt_CountMinSketch_alloc(size_t width, size_t height, uint32_t *mat) {
 
     if (height > 9000) { /* we only have 9000 primes (if you're trying to set height this high you're doing something wrong) */
         return 0;
     }
 
-    void *buffer = malloc(sizeof(pt_CountMinSketch));
+    void *buffer = alloc(sizeof(pt_CountMinSketch));
 
     pt_CountMinSketch *res = (pt_CountMinSketch *) buffer;
 
@@ -107,7 +116,7 @@ uint32_t pt_CountMinSketch_lookupHash(pt_CountMinSketch *sketch, uint32_t value)
 uint64_t pt_substringScore(pt_CountMinSketch *sketch, char *string, size_t size) {
     uint32_t hash_value = pt_hash(string, size);
     uint32_t token_count = pt_CountMinSketch_lookupHash(sketch, hash_value);
-    return token_count * (size * size * size * size * size * size * size * size * size);
+    return token_count * size;
 }
 
 
@@ -117,68 +126,97 @@ size_t pt_candidateSplitPoints(
         size_t data_size,
         size_t *split_points,
         uint64_t *score,
-        size_t outp_buffer_size) {
+        size_t outp_buffer_size,
+        size_t recursion_depth) {
+
 
     size_t outp_offset = 0;
     size_t string_length = 0;
-    uint64_t *candidate_scores = alloca(outp_buffer_size * sizeof(uint64_t));
+    uint64_t *candidate_scores = alloc(outp_buffer_size * sizeof(uint64_t));
+    size_t *candidate_split_points = alloc(data_size * sizeof(size_t));
 
     while (string_length < data_size && outp_offset < outp_buffer_size) {
         uint64_t score = pt_substringScore(sketch, data, string_length);
         if (score > 5) {
             candidate_scores[outp_offset] = score;
-            split_points[outp_offset] = string_length;
+            candidate_split_points[outp_offset] = string_length;
             outp_offset++;
         }
         string_length += pt_UTF8CharacterLength(data, string_length, data_size);
     }
 
-    if (outp_offset > 0) {
 
-        size_t res_size = data_size - split_points[0];
-        size_t *splits_buffer = alloca(res_size * sizeof(size_t));
-        size_t *max_splits_buffer = alloca((res_size + 1) * sizeof(size_t));
-        size_t max_buffer_size = 0;
-        uint64_t max_score = 0;
+    size_t res;
+    if (recursion_depth > 8) {
+
+        uint64_t total_score = 0;
 
         for (size_t i=0; i < outp_offset; i++) {
-            size_t split_point = split_points[i];
-            size_t res_splits_count;
-            uint64_t total_score;
-
-            res_splits_count = pt_candidateSplitPoints(
-                    sketch,
-                    (data + split_point),
-                    (data_size - split_point),
-                    splits_buffer,
-                    &total_score,
-                    res_size);
-
-            if (res_splits_count > 0 && total_score > max_score) {
-                max_score = total_score;
-                max_buffer_size = res_splits_count;
-                max_splits_buffer[0] = split_point;
-                memcpy(splits_buffer, max_splits_buffer + sizeof(size_t), res_splits_count);
-            }
-
+            total_score += candidate_scores[outp_offset];
         }
+
+        *score = total_score;
+
+        memcpy(candidate_split_points, split_points, outp_offset);
+
+        res = outp_offset;
+
+    } else if (outp_offset > 0) {
+
+        size_t res_size = data_size - candidate_split_points[0];
+        size_t *splits_buffer = alloc(res_size * sizeof(size_t));
+            size_t *max_splits_buffer = alloc((res_size + 1) * sizeof(size_t));
+                size_t max_buffer_size = 0;
+                uint64_t max_score = 0;
+
+                for (size_t i=0; i < outp_offset; i++) {
+                    size_t split_point = candidate_split_points[i];
+                    size_t res_splits_count;
+                    uint64_t inner_score;
+                    uint64_t total_score;
+
+                    res_splits_count = pt_candidateSplitPoints(
+                            sketch,
+                            (data + split_point),
+                            (data_size - split_point),
+                            splits_buffer,
+                            &inner_score,
+                            res_size,
+                            recursion_depth + 1);
+
+                    total_score = inner_score + candidate_scores[i];
+
+                    if (res_splits_count > 0 && total_score > max_score) {
+                        max_score = total_score;
+                        max_buffer_size = res_splits_count;
+                        max_splits_buffer[0] = split_point;
+                        memcpy(splits_buffer, max_splits_buffer + sizeof(size_t), res_splits_count);
+                    }
+
+                }
+                free(max_splits_buffer);
+
+            free(splits_buffer);
 
         if (max_score > 0) {
 
             *score = max_score;
             memcpy(max_splits_buffer, split_points, max_buffer_size);
-            return max_buffer_size;
+            res = max_buffer_size;
 
         } else {
-            return 0;
+            res = 0;
         }
 
     } else {
 
-        return 0;
+        res = 0;
     
     }
 
+    free(candidate_scores);
+    free(candidate_split_points);
+    return res;
 }
 
 size_t pt_chunkText(
@@ -197,7 +235,8 @@ size_t pt_chunkText(
             length,
             result_target,
             &res_score,
-            length);
+            length,
+            0);
 
 
     return result_len;
