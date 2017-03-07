@@ -38,7 +38,10 @@ def splits(text, L=30):
     return [(text[:i+1], text[i+1:])
                for i in range(min(len(text), L))]
 
-class Segment(object):
+cdef class Segment(object):
+
+    cdef dict cache
+    cdef PhraseTokenizer tokenizer
 
     def __init__(self, tokenizer):
         self.cache = {}
@@ -48,6 +51,9 @@ class Segment(object):
         "Return a list of words that is the best segmentation of text."
         cdef double max_score
         cdef object max_split
+        cdef size_t iter_count
+        cdef size_t i
+        iter_count = min(len(text), 30)
         if not text:
             return ([], None)
         try:
@@ -56,7 +62,7 @@ class Segment(object):
             max_score = 0
             max_split = None
             if recursion_depth > 100:
-                for i in xrange(min(len(text), 30)):
+                for i in xrange(iter_count):
                     left = text[:i+1]
                     right = text[i+1:]
                     score = self.tokenizer.Pr(left) * self.tokenizer.Pr(right)
@@ -64,7 +70,7 @@ class Segment(object):
                         max_score = score
                         max_split = [left, right]
             else:
-                for i in xrange(min(len(text), 30)):
+                for i in xrange(iter_count):
                     left = text[:i+1]
                     right = text[i+1:]
                     right_chunk, right_score = self.segment(right, recursion_depth+1)
@@ -72,7 +78,7 @@ class Segment(object):
                         score = self.tokenizer.Pr(left)
                         if max_split is None or score > max_score:
                             max_score = score
-                            max_split = [left]
+                            max_split = [left] 
                     else:
                         score = self.tokenizer.Pr(left) * right_score
                         if max_split is None or score > max_score:
