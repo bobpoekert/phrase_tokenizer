@@ -6,6 +6,11 @@ import numpy as np
 cimport numpy as np
 import os
 
+__version__ = '1'
+
+cdef extern from "limits.h":
+    int INT_MAX
+
 cdef extern from "phrase_tokenizer.c":
     struct pt_CountMinSketch:
         size_t width
@@ -33,19 +38,20 @@ cdef extern from "map_file.c":
 cdef extern from "alloca.h":
     void *alloca(size_t size)
 
-def splits(text, L=30):
-    "Return a list of all possible (first, rem) pairs, len(first)<=L."
-    return [(text[:i+1], text[i+1:])
-               for i in range(min(len(text), L))]
+cdef uint64_t whitelist_multiplier = 1000000000
 
 cdef class Segment(object):
 
     cdef dict cache
+    cdef set whitelist
+    cdef set blacklist
     cdef PhraseTokenizer tokenizer
 
-    def __init__(self, tokenizer):
+    def __init__(self, tokenizer, whitelist, blacklist):
         self.cache = {}
         self.tokenizer = tokenizer
+        self.whitelist = whitelist
+        self.blacklist = blacklist
 
     def segment(self, text, recursion_depth):
         "Return a list of words that is the best segmentation of text."
@@ -53,7 +59,7 @@ cdef class Segment(object):
         cdef object max_split
         cdef size_t iter_count
         cdef size_t i
-        iter_count = min(len(text), 30)
+        iter_count = len(text)
         if not text:
             return ([], None)
         try:
@@ -61,29 +67,48 @@ cdef class Segment(object):
         except KeyError:
             max_score = 0
             max_split = None
-            if recursion_depth > 100:
+            if recursion_depth > 1000:
                 for i in xrange(iter_count):
-                    left = text[:i+1]
-                    right = text[i+1:]
+                    left = text[:i+1].strip()
+                    right = text[i+1:].strip()
+                    if left in self.blacklist or right in self.blacklist:
+                        continue
                     score = self.tokenizer.Pr(left) * self.tokenizer.Pr(right)
+                    if left in self.whitelist or right in self.whitelist:
+                        max_score = INT_MAX
+                        max_split = [left, right]
+                        break
                     if max_split is None or score > max_score:
                         max_score = score
                         max_split = [left, right]
             else:
                 for i in xrange(iter_count):
-                    left = text[:i+1]
-                    right = text[i+1:]
+                    left = text[:i+1].strip()
+                    if left in self.blacklist:
+                        continue
+                    right = text[i+1:].strip()
                     right_chunk, right_score = self.segment(right, recursion_depth+1)
-                    if right_score is None:
-                        score = self.tokenizer.Pr(left)
-                        if max_split is None or score > max_score:
-                            max_score = score
-                            max_split = [left] 
-                    else:
-                        score = self.tokenizer.Pr(left) * right_score
-                        if max_split is None or score > max_score:
-                            max_score = score
-                            max_split = [left] + right_chunk
+                    if right_chunk is not None:
+                        if right_score is None:
+                            score = self.tokenizer.Pr(left)
+                            if left in self.whitelist:
+                                max_score = INT_MAX
+                                max_split = [left]
+                                break
+                            if max_split is None or score > max_score:
+                                max_score = score
+                                max_split = [left]
+                        else:
+                            score = self.tokenizer.Pr(left) * right_score
+                            if left in self.whitelist:
+                                max_score = INT_MAX
+                                max_split = [left] + right_chunk
+                                break
+                            if max_split is None or score > max_score:
+                                max_score = score
+                                max_split = []
+                                max_split.append(left)
+                                max_split.extend(right_chunk)
 
             res = (max_split, max_score)
             self.cache[text] = res
@@ -114,7 +139,7 @@ cdef class PhraseTokenizer:
         cdef np.uint32_t[:, :] view = <np.uint32_t[:self.token_sketch.width, :self.token_sketch.height]> self.mat
         return np.asarray(view)
 
-    def __getitem__(self, k):
+    def get_count(self, k):
         unicode_text = k.lower().encode('utf-8')
         cdef char *raw_text = unicode_text
         cdef uint32_t token_count
@@ -126,7 +151,7 @@ cdef class PhraseTokenizer:
         return token_count
 
     def Pr(self, k):
-        return self[k] / self.total
+        return self.get_count(k) / self.total
 
     def Pwords(self, words):
         res = 1
@@ -134,8 +159,8 @@ cdef class PhraseTokenizer:
             res = res * self.Pr(word)
         return res
 
-    def chunk(self, text):
-        return Segment(self).segment(text, 0)[0]
+    def chunk(self, text, whitelist=set([]), blacklist=set([])):
+        return Segment(self, whitelist, blacklist).segment(text, 0)[0]
 
     def __dealloc__(self):
         unload(<char *>self.mat, self.sketch_size)
